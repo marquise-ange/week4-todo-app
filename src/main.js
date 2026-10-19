@@ -22,6 +22,8 @@ function loadSavedState() {
           task &&
           Number.isInteger(task.id) &&
           typeof task.text === 'string' &&
+          task.text.trim().length > 0 &&
+          task.text.length <= 100 &&
           typeof task.completed === 'boolean' &&
           ['High', 'Medium', 'Low'].includes(task.priority)
         )
@@ -30,7 +32,9 @@ function loadSavedState() {
         id: task.id,
         text: task.text,
         description:
-          typeof task.description === 'string' ? task.description : '',
+          typeof task.description === 'string'
+            ? task.description.slice(0, 300)
+            : '',
         priority: task.priority,
         completed: task.completed,
       }))
@@ -206,7 +210,7 @@ app.innerHTML = `
             id="task-input"
             name="task"
             type="text"
-            maxlength="200"
+            maxlength="100"
             placeholder="e.g. Study JavaScript"
             aria-describedby="task-error"
             class="min-w-0 flex-1 rounded-xl border border-[#dcded4] bg-[#fcfcf9] px-4 py-3 text-[#24382d] outline-none transition placeholder:text-[#9a9d93] focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
@@ -233,7 +237,7 @@ app.innerHTML = `
 
         <div class="mt-5">
           <label for="task-priority" class="block text-sm font-semibold text-[#24382d]">Priority</label>
-          <select id="task-priority" name="priority" class="mt-2 rounded-xl border border-[#dcded4] bg-white px-4 py-3 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15">
+          <select id="task-priority" name="priority" class="priority-select mt-2">
             <option value="Low">Low priority</option>
             <option value="Medium" selected>Medium priority</option>
             <option value="High">High priority</option>
@@ -288,6 +292,79 @@ const searchInput = document.querySelector('#task-search')
 const filterButtons = document.querySelectorAll('[data-filter]')
 const clearCompletedButton = document.querySelector('#clear-completed')
 
+// Create the bottom-right notification container.
+const toastContainer = document.createElement('div')
+toastContainer.id = 'toast-container'
+toastContainer.setAttribute('aria-live', 'polite')
+toastContainer.setAttribute('aria-atomic', 'false')
+toastContainer.setAttribute('aria-label', 'Notifications')
+document.body.append(toastContainer)
+
+// Show a notification in the bottom-right corner.
+function showToast(message, type = 'success', title = 'TaskFlow') {
+  const toast = document.createElement('div')
+  toast.className = `task-toast task-toast--${type}`
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status')
+
+  const icon = document.createElement('span')
+  icon.className = 'task-toast__icon'
+  icon.setAttribute('aria-hidden', 'true')
+
+  if (type === 'error') {
+    icon.textContent = '!'
+  } else if (type === 'info') {
+    icon.textContent = '↻'
+  } else {
+    icon.textContent = '✓'
+  }
+
+  const content = document.createElement('div')
+  content.className = 'task-toast__content'
+
+  const heading = document.createElement('p')
+  heading.className = 'task-toast__title'
+  heading.textContent = title
+
+  const description = document.createElement('p')
+  description.className = 'task-toast__message'
+  description.textContent = message
+
+  const closeButton = document.createElement('button')
+  closeButton.type = 'button'
+  closeButton.className = 'task-toast__close'
+  closeButton.textContent = '×'
+  closeButton.setAttribute('aria-label', 'Dismiss notification')
+
+  let removeTimer
+  let animationTimer
+
+  function dismissToast() {
+    clearTimeout(removeTimer)
+    clearTimeout(animationTimer)
+
+    toast.classList.remove('task-toast--visible')
+
+    removeTimer = setTimeout(() => {
+      toast.remove()
+    }, 250)
+  }
+
+  closeButton.addEventListener('click', dismissToast)
+
+  content.append(heading, description)
+  toast.append(icon, content, closeButton)
+  toastContainer.append(toast)
+
+  requestAnimationFrame(() => {
+    toast.classList.add('task-toast--visible')
+  })
+
+  animationTimer = setTimeout(dismissToast, 3500)
+}
+
+// Apply the same compact priority style to the add-task selector.
+priorityInput.classList.add('priority-select')
+
 // Display an inline validation message.
 function showError(message) {
   taskError.textContent = message
@@ -302,17 +379,17 @@ function clearError() {
   taskInput.removeAttribute('aria-invalid')
 }
 
-// Create a priority badge for a task.
+// Create a clean priority badge without colored dots.
 function createPriorityBadge(priority) {
-  const classes = {
-    High: 'bg-red-50 text-red-700',
-    Medium: 'bg-amber-50 text-amber-700',
-    Low: 'bg-[#edf4eb] text-[#477858]',
+  const styles = {
+    High: 'border-red-200 bg-red-50 text-red-800',
+    Medium: 'border-amber-200 bg-amber-50 text-amber-800',
+    Low: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   }
 
   const badge = document.createElement('span')
   badge.className =
-    `mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${classes[priority]}`
+    `mt-3 inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold ${styles[priority] || styles.Medium}`
   badge.textContent = `${priority} priority`
 
   return badge
@@ -349,29 +426,30 @@ function renderEditForm(task, item, details) {
   titleLabel.className = 'block text-sm font-semibold text-[#24382d]'
   titleLabel.textContent = 'Task title'
 
-  const titleInput = document.createElement('input')
-  titleInput.name = 'text'
-  titleInput.value = task.text
-  titleInput.maxLength = 200
-  titleInput.setAttribute('aria-label', 'Edit task title')
-  titleInput.className =
+  const titleInputEdit = document.createElement('input')
+  titleInputEdit.name = 'text'
+  titleInputEdit.value = task.text
+  titleInputEdit.maxLength = 100
+  titleInputEdit.required = true
+  titleInputEdit.setAttribute('aria-label', 'Edit task title')
+  titleInputEdit.className =
     'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
-  titleLabel.append(titleInput)
+  titleLabel.append(titleInputEdit)
 
   const descriptionLabel = document.createElement('label')
   descriptionLabel.className =
     'block text-sm font-semibold text-[#24382d]'
   descriptionLabel.textContent = 'Description (optional)'
 
-  const descriptionInput = document.createElement('textarea')
-  descriptionInput.name = 'description'
-  descriptionInput.value = task.description
-  descriptionInput.maxLength = 300
-  descriptionInput.rows = 3
-  descriptionInput.setAttribute('aria-label', 'Edit task description')
-  descriptionInput.className =
+  const descriptionInputEdit = document.createElement('textarea')
+  descriptionInputEdit.name = 'description'
+  descriptionInputEdit.value = task.description
+  descriptionInputEdit.maxLength = 300
+  descriptionInputEdit.rows = 3
+  descriptionInputEdit.setAttribute('aria-label', 'Edit task description')
+  descriptionInputEdit.className =
     'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
-  descriptionLabel.append(descriptionInput)
+  descriptionLabel.append(descriptionInputEdit)
 
   const priorityLabel = document.createElement('label')
   priorityLabel.className =
@@ -381,16 +459,22 @@ function renderEditForm(task, item, details) {
   const prioritySelect = document.createElement('select')
   prioritySelect.name = 'priority'
   prioritySelect.setAttribute('aria-label', 'Edit task priority')
-  prioritySelect.className =
-    'mt-2 block rounded-xl border border-[#dcded4] bg-white px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+  prioritySelect.className = 'priority-select mt-2'
+
+  const priorityLabels = {
+    Low: 'Low priority',
+    Medium: 'Medium priority',
+    High: 'High priority',
+  }
 
     ;['Low', 'Medium', 'High'].forEach((priority) => {
       const option = document.createElement('option')
       option.value = priority
-      option.textContent = `${priority} priority`
+      option.textContent = priorityLabels[priority]
       option.selected = task.priority === priority
       prioritySelect.append(option)
     })
+
   priorityLabel.append(prioritySelect)
 
   const error = document.createElement('p')
@@ -420,8 +504,8 @@ function renderEditForm(task, item, details) {
   details.append(form)
   item.append(details)
 
-  titleInput.focus()
-  titleInput.select()
+  titleInputEdit.focus()
+  titleInputEdit.select()
 }
 
 // Render all visible tasks from the state array.
@@ -449,15 +533,17 @@ function render() {
 
     const emptyTitle = document.createElement('p')
     emptyTitle.className = 'font-semibold text-[#24382d]'
-    emptyTitle.textContent = tasks.length === 0
-      ? 'Your journey starts with one task.'
-      : 'No tasks match your search or filter.'
+    emptyTitle.textContent =
+      tasks.length === 0
+        ? 'Your journey starts with one task.'
+        : 'No tasks match your search or filter.'
 
     const emptyDescription = document.createElement('p')
     emptyDescription.className = 'mt-2 text-sm text-[#73796f]'
-    emptyDescription.textContent = tasks.length === 0
-      ? 'Add your first task using the form above.'
-      : 'Try another search or choose a different filter.'
+    emptyDescription.textContent =
+      tasks.length === 0
+        ? 'Add your first task using the form above.'
+        : 'Try another search or choose a different filter.'
 
     emptyItem.append(emptyTitle, emptyDescription)
     taskList.append(emptyItem)
@@ -467,7 +553,7 @@ function render() {
     const item = document.createElement('li')
     item.dataset.taskId = String(task.id)
     item.className =
-      'flex flex-col gap-3 rounded-2xl border border-[#e8e5db] bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between'
+      'flex flex-col gap-3 rounded-2xl border border-[#e8e5db] bg-white p-4 shadow-sm transition hover:border-[#d9e5d9] hover:shadow-md sm:flex-row sm:items-center sm:justify-between'
 
     const details = document.createElement('div')
     details.className = 'min-w-0 flex-1'
@@ -492,7 +578,10 @@ function render() {
     checkbox.checked = task.completed
     checkbox.dataset.action = 'toggle'
     checkbox.dataset.taskId = String(task.id)
-    checkbox.setAttribute('aria-label', `Mark ${task.text} as completed`)
+    checkbox.setAttribute(
+      'aria-label',
+      `Mark ${task.text} as ${task.completed ? 'active' : 'completed'}`
+    )
     checkbox.className = 'h-5 w-5 accent-[#245b43]'
 
     const checkboxText = document.createElement('span')
@@ -571,6 +660,12 @@ function addTask(event) {
     return
   }
 
+  if (!['Low', 'Medium', 'High'].includes(priorityInput.value)) {
+    showError('Please select a valid priority.')
+    priorityInput.focus()
+    return
+  }
+
   clearError()
 
   tasks.push({
@@ -590,6 +685,7 @@ function addTask(event) {
   searchInput.value = ''
 
   render()
+  showToast('Your new task has been added.', 'success', 'Task added')
   taskInput.focus()
 }
 
@@ -605,12 +701,14 @@ function saveEdit(form) {
   if (error) {
     errorElement.textContent = error
     errorElement.classList.remove('hidden')
+    form.elements.text.focus()
     return
   }
 
   if (!['Low', 'Medium', 'High'].includes(priority)) {
     errorElement.textContent = 'Please select a valid priority.'
     errorElement.classList.remove('hidden')
+    form.elements.priority.focus()
     return
   }
 
@@ -621,10 +719,12 @@ function saveEdit(form) {
   task.description = description
   task.priority = priority
   editingId = null
+
   render()
+  showToast('Your changes have been saved.', 'success', 'Task updated')
 }
 
-// Clear the main form's validation message when the user types.
+// Clear the main form's validation message.
 function clearErrorOnInput() {
   clearError()
 }
@@ -660,7 +760,9 @@ function handleTaskClick(event) {
 
     tasks = tasks.filter((item) => item.id !== task.id)
     if (editingId === task.id) editingId = null
+
     render()
+    showToast('The task was deleted.', 'success', 'Task deleted')
   }
 }
 
@@ -679,6 +781,14 @@ function handleTaskChange(event) {
 
     task.completed = checkbox.checked
     render()
+
+    showToast(
+      task.completed
+        ? 'Well done! You completed a task.'
+        : 'Your task is active again.',
+      task.completed ? 'success' : 'info',
+      task.completed ? 'Task completed' : 'Task reactivated'
+    )
   }
 }
 
@@ -692,7 +802,7 @@ function handleTaskSubmit(event) {
   saveEdit(form)
 }
 
-// Let Escape cancel editing and Enter submit from the title input.
+// Let Escape cancel editing.
 function handleTaskKeydown(event) {
   const form = event.target.closest('form[data-edit-form]')
   if (!form) return
@@ -704,10 +814,10 @@ function handleTaskKeydown(event) {
   }
 }
 
-// Clear the validation message while typing in the main title field.
+// Clear the validation message while typing.
 taskInput.addEventListener('input', clearErrorOnInput)
 
-// Add tasks using the form button or Enter in the title field.
+// Add tasks using the form button or Enter.
 taskForm.addEventListener('submit', addTask)
 
 // Search task titles and descriptions.
@@ -725,18 +835,36 @@ filterButtons.forEach((button) => {
   })
 })
 
-// Delete all completed tasks.
+// Delete all completed tasks after confirmation.
 clearCompletedButton.addEventListener('click', () => {
+  const completedTasks = tasks.filter((task) => task.completed)
+
+  if (completedTasks.length === 0) return
+
+  const confirmed = window.confirm(
+    `Clear ${completedTasks.length} completed ${completedTasks.length === 1 ? 'task' : 'tasks'}?`
+  )
+
+  if (!confirmed) return
+
+  const clearedCount = completedTasks.length
   tasks = tasks.filter((task) => !task.completed)
   editingId = null
+
   render()
+
+  showToast(
+    `${clearedCount} completed ${clearedCount === 1 ? 'task' : 'tasks'} cleared.`,
+    'success',
+    'Completed tasks cleared'
+  )
 })
 
-// Use event delegation for all task actions.
+// Use event delegation for task actions.
 taskList.addEventListener('click', handleTaskClick)
 taskList.addEventListener('change', handleTaskChange)
 taskList.addEventListener('submit', handleTaskSubmit)
 taskList.addEventListener('keydown', handleTaskKeydown)
 
-// Show the page using the restored application state.
+// Display the app using the restored state.
 render()
