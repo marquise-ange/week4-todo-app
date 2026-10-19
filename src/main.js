@@ -144,10 +144,7 @@ app.innerHTML = `
             class="min-w-0 flex-1 rounded-xl border border-[#dcded4] bg-[#fcfcf9] px-4 py-3 text-[#24382d] outline-none transition placeholder:text-[#9a9d93] focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
           />
 
-          <button
-            type="submit"
-            class="rounded-xl bg-[#245b43] px-6 py-3 font-semibold text-white transition hover:bg-[#194632] focus:outline-none focus:ring-4 focus:ring-[#477858]/30"
-          >
+          <button type="submit" class="rounded-xl bg-[#245b43] px-6 py-3 font-semibold text-white transition hover:bg-[#194632] focus:outline-none focus:ring-4 focus:ring-[#477858]/30">
             + Add task
           </button>
         </div>
@@ -156,11 +153,7 @@ app.innerHTML = `
 
         <div class="mt-5">
           <label for="task-priority" class="block text-sm font-semibold text-[#24382d]">Priority</label>
-          <select
-            id="task-priority"
-            name="priority"
-            class="mt-2 rounded-xl border border-[#dcded4] bg-white px-4 py-3 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
-          >
+          <select id="task-priority" name="priority" class="mt-2 rounded-xl border border-[#dcded4] bg-white px-4 py-3 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15">
             <option value="Low">Low priority</option>
             <option value="Medium" selected>Medium priority</option>
             <option value="High">High priority</option>
@@ -204,7 +197,7 @@ function clearError() {
   taskInput.removeAttribute('aria-invalid')
 }
 
-// Render the current task array into the page safely.
+// Render tasks from the array using safe DOM methods.
 function render() {
   taskList.replaceChildren()
 
@@ -234,22 +227,67 @@ function render() {
     taskDetails.className = 'min-w-0'
 
     const taskName = document.createElement('p')
-    taskName.className = 'break-words font-medium text-[#24382d]'
+    taskName.className = task.completed
+      ? 'break-words font-medium text-[#92958b] line-through'
+      : 'break-words font-medium text-[#24382d]'
     taskName.textContent = task.text
 
-    const priorityBadge = document.createElement('span')
     const priorityClasses = {
       High: 'bg-red-50 text-red-700',
       Medium: 'bg-amber-50 text-amber-700',
       Low: 'bg-[#edf4eb] text-[#477858]',
     }
 
+    const priorityBadge = document.createElement('span')
     priorityBadge.className =
       `mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${priorityClasses[task.priority]}`
     priorityBadge.textContent = `${task.priority} priority`
 
     taskDetails.append(taskName, priorityBadge)
-    item.append(taskDetails)
+
+    const actions = document.createElement('div')
+    actions.className = 'flex shrink-0 items-center gap-3'
+
+    const checkboxLabel = document.createElement('label')
+    checkboxLabel.className =
+      'flex items-center gap-2 text-sm text-[#477858]'
+
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.checked = task.completed
+    checkbox.setAttribute('aria-label', `Mark ${task.text} as completed`)
+    checkbox.className = 'h-5 w-5 accent-[#245b43]'
+
+    checkbox.addEventListener('change', () => {
+      task.completed = checkbox.checked
+      render()
+    })
+
+    const checkboxText = document.createElement('span')
+    checkboxText.textContent = task.completed ? 'Completed' : 'Complete'
+
+    checkboxLabel.append(checkbox, checkboxText)
+
+    const deleteButton = document.createElement('button')
+    deleteButton.type = 'button'
+    deleteButton.textContent = 'Delete'
+    deleteButton.setAttribute('aria-label', `Delete ${task.text}`)
+    deleteButton.className =
+      'rounded-lg px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-300'
+
+    deleteButton.addEventListener('click', () => {
+      const shouldDelete = window.confirm(
+        `Are you sure you want to delete "${task.text}"?`
+      )
+
+      if (shouldDelete) {
+        tasks = tasks.filter((item) => item.id !== task.id)
+        render()
+      }
+    })
+
+    actions.append(checkboxLabel, deleteButton)
+    item.append(taskDetails, actions)
     taskList.append(item)
   })
 
@@ -257,7 +295,7 @@ function render() {
     `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`
 }
 
-// Validate the form and add a new task to the array.
+// Validate the form and add a new task.
 function addTask(event) {
   event.preventDefault()
 
@@ -281,6 +319,7 @@ function addTask(event) {
     id: nextId,
     text: text,
     priority: priorityInput.value,
+    completed: false,
   }
 
   tasks.push(newTask)
@@ -293,11 +332,17 @@ function addTask(event) {
   taskInput.focus()
 }
 
-// Clear validation errors as the user edits the input.
-taskInput.addEventListener('input', clearError)
+// Clear validation errors as the input changes.
+function clearErrorOnInput() {
+  clearError()
+}
 
-// Handle submissions from the Add Task button or Enter key.
-taskForm.addEventListener('submit', addTask)
+// Handle form submission using the Add Task button or Enter.
+function handleFormSubmit(event) {
+  addTask(event)
+}
 
-// Show the initial empty state.
+taskInput.addEventListener('input', clearErrorOnInput)
+taskForm.addEventListener('submit', handleFormSubmit)
+
 render()
