@@ -860,6 +860,33 @@ function handleTaskKeydown(event) {
   }
 }
 
+// Handle global keyboard shortcuts for faster navigation.
+function handleGlobalKeydown(event) {
+  // Ignore shortcuts when the user is typing in a form field.
+  const target = event.target
+  const isTyping =
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+
+  // Do not trigger shortcuts while using modifier keys.
+  if (isTyping || event.ctrlKey || event.altKey || event.metaKey) {
+    return
+  }
+
+  // Press "/" to focus the task search field.
+  if (event.key === '/') {
+    event.preventDefault()
+    searchInput.focus()
+  }
+
+  // Press "N" or "n" to focus the new-task title field.
+  if (event.key.toLowerCase() === 'n') {
+    event.preventDefault()
+    taskInput.focus()
+  }
+}
+
 // Clear the validation message while typing.
 taskInput.addEventListener('input', clearErrorOnInput)
 
@@ -912,5 +939,7 @@ taskList.addEventListener('change', handleTaskChange)
 taskList.addEventListener('submit', handleTaskSubmit)
 taskList.addEventListener('keydown', handleTaskKeydown)
 
+// Listen for global keyboard shortcuts.
+document.addEventListener('keydown', handleGlobalKeydown)
 // Display the app using the restored state.
 render()
