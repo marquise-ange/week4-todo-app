@@ -246,10 +246,39 @@ app.innerHTML = `
       </form>
 
       <div class="mt-6 flex flex-wrap items-center justify-between gap-4">
-        <h3 class="text-lg font-bold text-[#24382d]">Your tasks</h3>
-        <p id="task-count" class="text-sm text-[#73796f]" aria-live="polite">0 tasks</p>
-      </div>
+  <h3 class="text-lg font-bold text-[#24382d]">Your tasks</h3>
+  <p id="task-count" class="text-sm text-[#73796f]" aria-live="polite">
+    0 tasks left
+  </p>
+</div>
 
+<!-- Show the user's overall task completion progress. -->
+<div class="mt-4 rounded-2xl border border-[#e8e5db] bg-white p-4">
+  <div class="mb-2 flex items-center justify-between gap-3">
+    <span class="text-sm font-semibold text-[#24382d]">
+      Your progress
+    </span>
+    <span id="progress-label" class="text-sm font-semibold text-[#477858]">
+      0% completed
+    </span>
+  </div>
+
+  <div
+    id="progress-track"
+    class="h-3 overflow-hidden rounded-full bg-[#e5e7dc]"
+    role="progressbar"
+    aria-label="Task completion progress"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    aria-valuenow="0"
+  >
+    <div
+      id="progress-fill"
+      class="h-full rounded-full bg-[#477858] transition-all duration-300"
+      style="width: 0%"
+    ></div>
+  </div>
+</div>
       <label for="task-search" class="mt-5 block text-sm font-semibold text-[#24382d]">Search tasks</label>
       <input
         id="task-search"
@@ -288,6 +317,9 @@ const priorityInput = document.querySelector('#task-priority')
 const taskError = document.querySelector('#task-error')
 const taskList = document.querySelector('#task-list')
 const taskCount = document.querySelector('#task-count')
+const progressLabel = document.querySelector('#progress-label')
+const progressTrack = document.querySelector('#progress-track')
+const progressFill = document.querySelector('#progress-fill')
 const searchInput = document.querySelector('#task-search')
 const filterButtons = document.querySelectorAll('[data-filter]')
 const clearCompletedButton = document.querySelector('#clear-completed')
@@ -611,8 +643,22 @@ function render() {
     taskList.append(item)
   })
 
+  // Count all unfinished tasks, regardless of the active filter or search.
+  const remainingTasks = tasks.filter((task) => !task.completed).length
+
   taskCount.textContent =
-    `${visibleTasks.length} ${visibleTasks.length === 1 ? 'task' : 'tasks'} shown · ${tasks.length} total`
+    `${remainingTasks} ${remainingTasks === 1 ? 'task' : 'tasks'} left`
+
+  // Calculate overall completion progress.
+  const completedTasks = tasks.filter((task) => task.completed).length
+
+  const progress = tasks.length === 0
+    ? 0
+    : Math.round((completedTasks / tasks.length) * 100)
+
+  progressLabel.textContent = `${progress}% completed`
+  progressFill.style.width = `${progress}%`
+  progressTrack.setAttribute('aria-valuenow', String(progress))
 
   filterButtons.forEach((button) => {
     const active = button.dataset.filter === currentFilter
