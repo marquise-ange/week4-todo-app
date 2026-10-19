@@ -6,6 +6,7 @@ const app = document.querySelector('#app')
 // Store all tasks in one array.
 let tasks = []
 let nextId = 1
+let editingId = null
 
 app.innerHTML = `
   <header class="border-b border-[#e8e5db]">
@@ -143,7 +144,6 @@ app.innerHTML = `
             aria-describedby="task-error"
             class="min-w-0 flex-1 rounded-xl border border-[#dcded4] bg-[#fcfcf9] px-4 py-3 text-[#24382d] outline-none transition placeholder:text-[#9a9d93] focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
           />
-
           <button type="submit" class="rounded-xl bg-[#245b43] px-6 py-3 font-semibold text-white transition hover:bg-[#194632] focus:outline-none focus:ring-4 focus:ring-[#477858]/30">
             + Add task
           </button>
@@ -183,21 +183,21 @@ const taskError = document.querySelector('#task-error')
 const taskList = document.querySelector('#task-list')
 const taskCount = document.querySelector('#task-count')
 
-// Display an error message beside the input.
+// Display an inline validation message.
 function showError(message) {
   taskError.textContent = message
   taskError.classList.remove('hidden')
   taskInput.setAttribute('aria-invalid', 'true')
 }
 
-// Clear the input error message.
+// Clear the validation message.
 function clearError() {
   taskError.textContent = ''
   taskError.classList.add('hidden')
   taskInput.removeAttribute('aria-invalid')
 }
 
-// Render tasks from the array using safe DOM methods.
+// Show the current tasks and their available actions.
 function render() {
   taskList.replaceChildren()
 
@@ -224,7 +224,12 @@ function render() {
       'flex flex-col gap-3 rounded-2xl border border-[#e8e5db] bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between'
 
     const taskDetails = document.createElement('div')
-    taskDetails.className = 'min-w-0'
+    taskDetails.className = 'min-w-0 flex-1'
+
+    if (editingId === task.id) {
+      renderEditForm(task, item, taskDetails)
+      return
+    }
 
     const taskName = document.createElement('p')
     taskName.className = task.completed
@@ -246,7 +251,7 @@ function render() {
     taskDetails.append(taskName, priorityBadge)
 
     const actions = document.createElement('div')
-    actions.className = 'flex shrink-0 items-center gap-3'
+    actions.className = 'flex shrink-0 flex-wrap items-center gap-2'
 
     const checkboxLabel = document.createElement('label')
     checkboxLabel.className =
@@ -265,8 +270,19 @@ function render() {
 
     const checkboxText = document.createElement('span')
     checkboxText.textContent = task.completed ? 'Completed' : 'Complete'
-
     checkboxLabel.append(checkbox, checkboxText)
+
+    const editButton = document.createElement('button')
+    editButton.type = 'button'
+    editButton.textContent = 'Edit'
+    editButton.setAttribute('aria-label', `Edit ${task.text}`)
+    editButton.className =
+      'rounded-lg px-3 py-2 text-sm font-semibold text-[#245b43] transition hover:bg-[#edf4eb] focus:outline-none focus:ring-2 focus:ring-[#477858]'
+
+    editButton.addEventListener('click', () => {
+      editingId = task.id
+      render()
+    })
 
     const deleteButton = document.createElement('button')
     deleteButton.type = 'button'
@@ -282,17 +298,114 @@ function render() {
 
       if (shouldDelete) {
         tasks = tasks.filter((item) => item.id !== task.id)
+
+        if (editingId === task.id) {
+          editingId = null
+        }
+
         render()
       }
     })
 
-    actions.append(checkboxLabel, deleteButton)
+    actions.append(checkboxLabel, editButton, deleteButton)
     item.append(taskDetails, actions)
     taskList.append(item)
   })
 
   taskCount.textContent =
     `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`
+}
+
+// Display an inline editing form for one task.
+function renderEditForm(task, item, taskDetails) {
+  const editForm = document.createElement('form')
+  editForm.className = 'flex min-w-0 flex-1 flex-col gap-3 sm:flex-row'
+  editForm.setAttribute('aria-label', 'Edit task')
+
+  const editInput = document.createElement('input')
+  editInput.type = 'text'
+  editInput.value = task.text
+  editInput.maxLength = 200
+  editInput.setAttribute('aria-label', 'Edit task text')
+  editInput.className =
+    'min-w-0 flex-1 rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+
+  const editError = document.createElement('p')
+  editError.className = 'hidden text-sm text-red-600'
+  editError.setAttribute('role', 'alert')
+
+  const saveButton = document.createElement('button')
+  saveButton.type = 'submit'
+  saveButton.textContent = 'Save'
+  saveButton.className =
+    'rounded-lg bg-[#245b43] px-4 py-2 text-sm font-semibold text-white hover:bg-[#194632]'
+
+  const cancelButton = document.createElement('button')
+  cancelButton.type = 'button'
+  cancelButton.textContent = 'Cancel'
+  cancelButton.className =
+    'rounded-lg border border-[#dcded4] px-4 py-2 text-sm font-semibold text-[#24382d] hover:bg-[#f8f7f2]'
+
+  editForm.addEventListener('submit', (event) => {
+    event.preventDefault()
+    saveEdit(task.id, editInput.value, editError)
+  })
+
+  editInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      editingId = null
+      render()
+    }
+  })
+
+  cancelButton.addEventListener('click', () => {
+    editingId = null
+    render()
+  })
+
+  const editActions = document.createElement('div')
+  editActions.className = 'flex flex-wrap gap-2'
+  editActions.append(saveButton, cancelButton)
+
+  const editContent = document.createElement('div')
+  editContent.className = 'flex min-w-0 flex-1 flex-col gap-2'
+  editContent.append(editInput, editError)
+
+  editForm.append(editContent, editActions)
+  taskDetails.append(editForm)
+  item.append(taskDetails)
+  taskList.append(item)
+
+  editInput.focus()
+  editInput.select()
+}
+
+// Validate and save an edited task.
+function saveEdit(taskId, value, errorElement) {
+  const text = value.trim()
+
+  if (text.length === 0) {
+    errorElement.textContent = 'Task text cannot be empty.'
+    errorElement.classList.remove('hidden')
+    return
+  }
+
+  if (text.length > 100) {
+    errorElement.textContent = 'Your task must be 100 characters or fewer.'
+    errorElement.classList.remove('hidden')
+    return
+  }
+
+  const task = tasks.find((item) => item.id === taskId)
+
+  if (!task) {
+    return
+  }
+
+  task.text = text
+  editingId = null
+  render()
 }
 
 // Validate the form and add a new task.
@@ -315,16 +428,14 @@ function addTask(event) {
 
   clearError()
 
-  const newTask = {
+  tasks.push({
     id: nextId,
     text: text,
     priority: priorityInput.value,
     completed: false,
-  }
+  })
 
-  tasks.push(newTask)
   nextId += 1
-
   taskInput.value = ''
   priorityInput.value = 'Medium'
 
@@ -332,17 +443,12 @@ function addTask(event) {
   taskInput.focus()
 }
 
-// Clear validation errors as the input changes.
+// Clear the validation message when the user types.
 function clearErrorOnInput() {
   clearError()
 }
 
-// Handle form submission using the Add Task button or Enter.
-function handleFormSubmit(event) {
-  addTask(event)
-}
-
 taskInput.addEventListener('input', clearErrorOnInput)
-taskForm.addEventListener('submit', handleFormSubmit)
+taskForm.addEventListener('submit', addTask)
 
 render()
