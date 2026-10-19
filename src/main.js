@@ -1,13 +1,15 @@
 
 import './style.css'
 
+// Find the main application container.
 const app = document.querySelector('#app')
 
-// Store all tasks in one array.
+// Keep all task data in one array.
 let tasks = []
 let nextId = 1
 let editingId = null
 
+// Build the TaskFlow page.
 app.innerHTML = `
   <header class="border-b border-[#e8e5db]">
     <nav class="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
@@ -132,7 +134,7 @@ app.innerHTML = `
       </div>
 
       <form id="task-form" class="mt-8 rounded-3xl border border-[#e8e5db] bg-white p-5 shadow-sm sm:p-8" novalidate>
-        <label for="task-input" class="block text-sm font-semibold text-[#24382d]">What would you like to accomplish?</label>
+        <label for="task-input" class="block text-sm font-semibold text-[#24382d]">Task title</label>
 
         <div class="mt-3 flex flex-col gap-3 sm:flex-row">
           <input
@@ -140,16 +142,29 @@ app.innerHTML = `
             name="task"
             type="text"
             maxlength="200"
-            placeholder="e.g. Study JavaScript for 30 minutes"
+            placeholder="e.g. Study JavaScript"
             aria-describedby="task-error"
             class="min-w-0 flex-1 rounded-xl border border-[#dcded4] bg-[#fcfcf9] px-4 py-3 text-[#24382d] outline-none transition placeholder:text-[#9a9d93] focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
           />
+
           <button type="submit" class="rounded-xl bg-[#245b43] px-6 py-3 font-semibold text-white transition hover:bg-[#194632] focus:outline-none focus:ring-4 focus:ring-[#477858]/30">
             + Add task
           </button>
         </div>
 
         <p id="task-error" class="mt-2 hidden text-sm font-medium text-red-600" role="alert"></p>
+
+        <div class="mt-5">
+          <label for="task-description" class="block text-sm font-semibold text-[#24382d]">Description (optional)</label>
+          <textarea
+            id="task-description"
+            name="description"
+            rows="3"
+            maxlength="300"
+            placeholder="Add a few details about this task..."
+            class="mt-2 w-full rounded-xl border border-[#dcded4] bg-[#fcfcf9] px-4 py-3 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
+          ></textarea>
+        </div>
 
         <div class="mt-5">
           <label for="task-priority" class="block text-sm font-semibold text-[#24382d]">Priority</label>
@@ -176,8 +191,10 @@ app.innerHTML = `
   </footer>
 `
 
+// Select the elements used by the application.
 const taskForm = document.querySelector('#task-form')
 const taskInput = document.querySelector('#task-input')
+const descriptionInput = document.querySelector('#task-description')
 const priorityInput = document.querySelector('#task-priority')
 const taskError = document.querySelector('#task-error')
 const taskList = document.querySelector('#task-list')
@@ -197,7 +214,40 @@ function clearError() {
   taskInput.removeAttribute('aria-invalid')
 }
 
-// Show the current tasks and their available actions.
+// Create and display one task's title and description.
+function renderTaskDetails(task, taskDetails) {
+  const taskName = document.createElement('p')
+  taskName.className = task.completed
+    ? 'break-words font-medium text-[#92958b] line-through'
+    : 'break-words font-medium text-[#24382d]'
+  taskName.textContent = task.text
+
+  const taskDescription = document.createElement('p')
+  taskDescription.className =
+    'mt-2 break-words text-sm leading-6 text-[#73796f]'
+  taskDescription.textContent = task.description || ''
+
+  const priorityClasses = {
+    High: 'bg-red-50 text-red-700',
+    Medium: 'bg-amber-50 text-amber-700',
+    Low: 'bg-[#edf4eb] text-[#477858]',
+  }
+
+  const priorityBadge = document.createElement('span')
+  priorityBadge.className =
+    `mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${priorityClasses[task.priority]}`
+  priorityBadge.textContent = `${task.priority} priority`
+
+  taskDetails.append(taskName)
+
+  if (task.description) {
+    taskDetails.append(taskDescription)
+  }
+
+  taskDetails.append(priorityBadge)
+}
+
+// Render all tasks from the state array.
 function render() {
   taskList.replaceChildren()
 
@@ -231,24 +281,7 @@ function render() {
       return
     }
 
-    const taskName = document.createElement('p')
-    taskName.className = task.completed
-      ? 'break-words font-medium text-[#92958b] line-through'
-      : 'break-words font-medium text-[#24382d]'
-    taskName.textContent = task.text
-
-    const priorityClasses = {
-      High: 'bg-red-50 text-red-700',
-      Medium: 'bg-amber-50 text-amber-700',
-      Low: 'bg-[#edf4eb] text-[#477858]',
-    }
-
-    const priorityBadge = document.createElement('span')
-    priorityBadge.className =
-      `mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${priorityClasses[task.priority]}`
-    priorityBadge.textContent = `${task.priority} priority`
-
-    taskDetails.append(taskName, priorityBadge)
+    renderTaskDetails(task, taskDetails)
 
     const actions = document.createElement('div')
     actions.className = 'flex shrink-0 flex-wrap items-center gap-2'
@@ -316,19 +349,56 @@ function render() {
     `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`
 }
 
-// Display an inline editing form for one task.
+// Show an editor for the title, description, and priority.
 function renderEditForm(task, item, taskDetails) {
   const editForm = document.createElement('form')
-  editForm.className = 'flex min-w-0 flex-1 flex-col gap-3 sm:flex-row'
+  editForm.className = 'flex min-w-0 flex-1 flex-col gap-4'
   editForm.setAttribute('aria-label', 'Edit task')
+
+  const titleLabel = document.createElement('label')
+  titleLabel.className = 'block text-sm font-semibold text-[#24382d]'
+  titleLabel.textContent = 'Task title'
 
   const editInput = document.createElement('input')
   editInput.type = 'text'
   editInput.value = task.text
   editInput.maxLength = 200
-  editInput.setAttribute('aria-label', 'Edit task text')
+  editInput.setAttribute('aria-label', 'Edit task title')
   editInput.className =
-    'min-w-0 flex-1 rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+    'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+  titleLabel.append(editInput)
+
+  const descriptionLabel = document.createElement('label')
+  descriptionLabel.className = 'block text-sm font-semibold text-[#24382d]'
+  descriptionLabel.textContent = 'Description (optional)'
+
+  const editDescription = document.createElement('textarea')
+  editDescription.value = task.description || ''
+  editDescription.maxLength = 300
+  editDescription.rows = 3
+  editDescription.setAttribute('aria-label', 'Edit task description')
+  editDescription.className =
+    'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+  descriptionLabel.append(editDescription)
+
+  const priorityLabel = document.createElement('label')
+  priorityLabel.className = 'block text-sm font-semibold text-[#24382d]'
+  priorityLabel.textContent = 'Priority'
+
+  const editPriority = document.createElement('select')
+  editPriority.setAttribute('aria-label', 'Edit task priority')
+  editPriority.className =
+    'mt-2 block rounded-xl border border-[#dcded4] bg-white px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+
+    ;['Low', 'Medium', 'High'].forEach((priority) => {
+      const option = document.createElement('option')
+      option.value = priority
+      option.textContent = `${priority} priority`
+      option.selected = task.priority === priority
+      editPriority.append(option)
+    })
+
+  priorityLabel.append(editPriority)
 
   const editError = document.createElement('p')
   editError.className = 'hidden text-sm text-red-600'
@@ -336,22 +406,29 @@ function renderEditForm(task, item, taskDetails) {
 
   const saveButton = document.createElement('button')
   saveButton.type = 'submit'
-  saveButton.textContent = 'Save'
+  saveButton.textContent = 'Save changes'
   saveButton.className =
-    'rounded-lg bg-[#245b43] px-4 py-2 text-sm font-semibold text-white hover:bg-[#194632]'
+    'rounded-lg bg-[#245b43] px-4 py-2 text-sm font-semibold text-white hover:bg-[#194632] focus:outline-none focus:ring-2 focus:ring-[#477858]'
 
   const cancelButton = document.createElement('button')
   cancelButton.type = 'button'
   cancelButton.textContent = 'Cancel'
   cancelButton.className =
-    'rounded-lg border border-[#dcded4] px-4 py-2 text-sm font-semibold text-[#24382d] hover:bg-[#f8f7f2]'
+    'rounded-lg border border-[#dcded4] px-4 py-2 text-sm font-semibold text-[#24382d] hover:bg-[#f8f7f2] focus:outline-none focus:ring-2 focus:ring-[#477858]'
 
   editForm.addEventListener('submit', (event) => {
     event.preventDefault()
-    saveEdit(task.id, editInput.value, editError)
+
+    saveEdit(
+      task.id,
+      editInput.value,
+      editDescription.value,
+      editPriority.value,
+      editError
+    )
   })
 
-  editInput.addEventListener('keydown', (event) => {
+  editForm.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       event.preventDefault()
       editingId = null
@@ -368,11 +445,14 @@ function renderEditForm(task, item, taskDetails) {
   editActions.className = 'flex flex-wrap gap-2'
   editActions.append(saveButton, cancelButton)
 
-  const editContent = document.createElement('div')
-  editContent.className = 'flex min-w-0 flex-1 flex-col gap-2'
-  editContent.append(editInput, editError)
+  editForm.append(
+    titleLabel,
+    descriptionLabel,
+    priorityLabel,
+    editError,
+    editActions
+  )
 
-  editForm.append(editContent, editActions)
   taskDetails.append(editForm)
   item.append(taskDetails)
   taskList.append(item)
@@ -381,18 +461,27 @@ function renderEditForm(task, item, taskDetails) {
   editInput.select()
 }
 
-// Validate and save an edited task.
-function saveEdit(taskId, value, errorElement) {
+// Validate and save all edited task fields.
+function saveEdit(taskId, value, description, priority, errorElement) {
   const text = value.trim()
+  const cleanDescription = description.trim()
 
   if (text.length === 0) {
-    errorElement.textContent = 'Task text cannot be empty.'
+    errorElement.textContent = 'Task title cannot be empty.'
     errorElement.classList.remove('hidden')
     return
   }
 
   if (text.length > 100) {
-    errorElement.textContent = 'Your task must be 100 characters or fewer.'
+    errorElement.textContent =
+      'Task title must be 100 characters or fewer.'
+    errorElement.classList.remove('hidden')
+    return
+  }
+
+  if (cleanDescription.length > 300) {
+    errorElement.textContent =
+      'Description must be 300 characters or fewer.'
     errorElement.classList.remove('hidden')
     return
   }
@@ -404,6 +493,9 @@ function saveEdit(taskId, value, errorElement) {
   }
 
   task.text = text
+  task.description = cleanDescription
+  task.priority = priority
+
   editingId = null
   render()
 }
@@ -413,6 +505,7 @@ function addTask(event) {
   event.preventDefault()
 
   const text = taskInput.value.trim()
+  const description = descriptionInput.value.trim()
 
   if (text.length === 0) {
     showError('Please enter a task before adding it.')
@@ -426,28 +519,37 @@ function addTask(event) {
     return
   }
 
+  if (description.length > 300) {
+    showError('Description must be 300 characters or fewer.')
+    descriptionInput.focus()
+    return
+  }
+
   clearError()
 
   tasks.push({
     id: nextId,
     text: text,
+    description: description,
     priority: priorityInput.value,
     completed: false,
   })
 
   nextId += 1
   taskInput.value = ''
+  descriptionInput.value = ''
   priorityInput.value = 'Medium'
 
   render()
   taskInput.focus()
 }
 
-// Clear the validation message when the user types.
+// Clear input errors when the user types.
 function clearErrorOnInput() {
   clearError()
 }
 
+// Connect the form events and show the initial page.
 taskInput.addEventListener('input', clearErrorOnInput)
 taskForm.addEventListener('submit', addTask)
 
