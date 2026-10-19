@@ -4,10 +4,75 @@ import './style.css'
 // Find the main application container.
 const app = document.querySelector('#app')
 
-// Keep all task data in one array.
-let tasks = []
-let nextId = 1
+// Define the key used to save TaskFlow data.
+const STORAGE_KEY = 'taskflow-state'
+
+// Load saved tasks and settings safely.
+function loadSavedState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
+
+    if (!saved || !Array.isArray(saved.tasks)) {
+      return { tasks: [], nextId: 1, currentFilter: 'all' }
+    }
+
+    const tasks = saved.tasks
+      .filter((task) => {
+        return (
+          task &&
+          Number.isInteger(task.id) &&
+          typeof task.text === 'string' &&
+          typeof task.completed === 'boolean' &&
+          ['High', 'Medium', 'Low'].includes(task.priority)
+        )
+      })
+      .map((task) => ({
+        id: task.id,
+        text: task.text,
+        description:
+          typeof task.description === 'string' ? task.description : '',
+        priority: task.priority,
+        completed: task.completed,
+      }))
+
+    const currentFilter = ['all', 'active', 'completed'].includes(
+      saved.currentFilter
+    )
+      ? saved.currentFilter
+      : 'all'
+
+    return {
+      tasks,
+      nextId: Number.isInteger(saved.nextId) ? saved.nextId : 1,
+      currentFilter,
+    }
+  } catch {
+    return { tasks: [], nextId: 1, currentFilter: 'all' }
+  }
+}
+
+// Restore the application state.
+const savedState = loadSavedState()
+let tasks = savedState.tasks
+let nextId = Math.max(
+  savedState.nextId,
+  tasks.reduce((max, task) => Math.max(max, task.id + 1), 1)
+)
+let currentFilter = savedState.currentFilter
 let editingId = null
+let searchText = ''
+
+// Save the current state to the browser.
+function saveState() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ tasks, nextId, currentFilter })
+    )
+  } catch {
+    console.error('TaskFlow could not save data in localStorage.')
+  }
+}
 
 // Build the TaskFlow page.
 app.innerHTML = `
@@ -176,9 +241,29 @@ app.innerHTML = `
         </div>
       </form>
 
-      <div class="mt-6 flex items-center justify-between gap-4">
+      <div class="mt-6 flex flex-wrap items-center justify-between gap-4">
         <h3 class="text-lg font-bold text-[#24382d]">Your tasks</h3>
         <p id="task-count" class="text-sm text-[#73796f]" aria-live="polite">0 tasks</p>
+      </div>
+
+      <label for="task-search" class="mt-5 block text-sm font-semibold text-[#24382d]">Search tasks</label>
+      <input
+        id="task-search"
+        type="search"
+        placeholder="Search by title or description..."
+        class="mt-2 w-full rounded-xl border border-[#dcded4] bg-white px-4 py-3 text-[#24382d] outline-none placeholder:text-[#9a9d93] focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15"
+      />
+
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap gap-2" aria-label="Filter tasks">
+          <button type="button" data-filter="all" aria-pressed="true" class="rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#477858]">All</button>
+          <button type="button" data-filter="active" aria-pressed="false" class="rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#477858]">Active</button>
+          <button type="button" data-filter="completed" aria-pressed="false" class="rounded-full border px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#477858]">Completed</button>
+        </div>
+
+        <button id="clear-completed" type="button" class="rounded-lg px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-300">
+          Clear completed
+        </button>
       </div>
 
       <ul id="task-list" class="mt-4 space-y-3" aria-label="Your task list"></ul>
@@ -199,6 +284,9 @@ const priorityInput = document.querySelector('#task-priority')
 const taskError = document.querySelector('#task-error')
 const taskList = document.querySelector('#task-list')
 const taskCount = document.querySelector('#task-count')
+const searchInput = document.querySelector('#task-search')
+const filterButtons = document.querySelectorAll('[data-filter]')
+const clearCompletedButton = document.querySelector('#clear-completed')
 
 // Display an inline validation message.
 function showError(message) {
@@ -214,74 +302,183 @@ function clearError() {
   taskInput.removeAttribute('aria-invalid')
 }
 
-// Create and display one task's title and description.
-function renderTaskDetails(task, taskDetails) {
-  const taskName = document.createElement('p')
-  taskName.className = task.completed
-    ? 'break-words font-medium text-[#92958b] line-through'
-    : 'break-words font-medium text-[#24382d]'
-  taskName.textContent = task.text
-
-  const taskDescription = document.createElement('p')
-  taskDescription.className =
-    'mt-2 break-words text-sm leading-6 text-[#73796f]'
-  taskDescription.textContent = task.description || ''
-
-  const priorityClasses = {
+// Create a priority badge for a task.
+function createPriorityBadge(priority) {
+  const classes = {
     High: 'bg-red-50 text-red-700',
     Medium: 'bg-amber-50 text-amber-700',
     Low: 'bg-[#edf4eb] text-[#477858]',
   }
 
-  const priorityBadge = document.createElement('span')
-  priorityBadge.className =
-    `mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${priorityClasses[task.priority]}`
-  priorityBadge.textContent = `${task.priority} priority`
+  const badge = document.createElement('span')
+  badge.className =
+    `mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${classes[priority]}`
+  badge.textContent = `${priority} priority`
 
-  taskDetails.append(taskName)
-
-  if (task.description) {
-    taskDetails.append(taskDescription)
-  }
-
-  taskDetails.append(priorityBadge)
+  return badge
 }
 
-// Render all tasks from the state array.
+// Display a task's title, description, and priority.
+function renderTaskDetails(task, container) {
+  const title = document.createElement('p')
+  title.className = task.completed
+    ? 'break-words font-medium text-[#92958b] line-through'
+    : 'break-words font-medium text-[#24382d]'
+  title.textContent = task.text
+  container.append(title)
+
+  if (task.description) {
+    const description = document.createElement('p')
+    description.className =
+      'mt-2 break-words text-sm leading-6 text-[#73796f]'
+    description.textContent = task.description
+    container.append(description)
+  }
+
+  container.append(createPriorityBadge(task.priority))
+}
+
+// Create the inline editor for a task.
+function renderEditForm(task, item, details) {
+  const form = document.createElement('form')
+  form.className = 'flex min-w-0 flex-1 flex-col gap-4'
+  form.dataset.editForm = 'true'
+  form.dataset.taskId = String(task.id)
+
+  const titleLabel = document.createElement('label')
+  titleLabel.className = 'block text-sm font-semibold text-[#24382d]'
+  titleLabel.textContent = 'Task title'
+
+  const titleInput = document.createElement('input')
+  titleInput.name = 'text'
+  titleInput.value = task.text
+  titleInput.maxLength = 200
+  titleInput.setAttribute('aria-label', 'Edit task title')
+  titleInput.className =
+    'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+  titleLabel.append(titleInput)
+
+  const descriptionLabel = document.createElement('label')
+  descriptionLabel.className =
+    'block text-sm font-semibold text-[#24382d]'
+  descriptionLabel.textContent = 'Description (optional)'
+
+  const descriptionInput = document.createElement('textarea')
+  descriptionInput.name = 'description'
+  descriptionInput.value = task.description
+  descriptionInput.maxLength = 300
+  descriptionInput.rows = 3
+  descriptionInput.setAttribute('aria-label', 'Edit task description')
+  descriptionInput.className =
+    'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+  descriptionLabel.append(descriptionInput)
+
+  const priorityLabel = document.createElement('label')
+  priorityLabel.className =
+    'block text-sm font-semibold text-[#24382d]'
+  priorityLabel.textContent = 'Priority'
+
+  const prioritySelect = document.createElement('select')
+  prioritySelect.name = 'priority'
+  prioritySelect.setAttribute('aria-label', 'Edit task priority')
+  prioritySelect.className =
+    'mt-2 block rounded-xl border border-[#dcded4] bg-white px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
+
+    ;['Low', 'Medium', 'High'].forEach((priority) => {
+      const option = document.createElement('option')
+      option.value = priority
+      option.textContent = `${priority} priority`
+      option.selected = task.priority === priority
+      prioritySelect.append(option)
+    })
+  priorityLabel.append(prioritySelect)
+
+  const error = document.createElement('p')
+  error.className = 'hidden text-sm text-red-600'
+  error.setAttribute('role', 'alert')
+  error.dataset.editError = 'true'
+
+  const actions = document.createElement('div')
+  actions.className = 'flex flex-wrap gap-2'
+
+  const saveButton = document.createElement('button')
+  saveButton.type = 'submit'
+  saveButton.textContent = 'Save changes'
+  saveButton.className =
+    'rounded-lg bg-[#245b43] px-4 py-2 text-sm font-semibold text-white hover:bg-[#194632] focus:outline-none focus:ring-2 focus:ring-[#477858]'
+
+  const cancelButton = document.createElement('button')
+  cancelButton.type = 'button'
+  cancelButton.dataset.action = 'cancel'
+  cancelButton.dataset.taskId = String(task.id)
+  cancelButton.textContent = 'Cancel'
+  cancelButton.className =
+    'rounded-lg border border-[#dcded4] px-4 py-2 text-sm font-semibold text-[#24382d] hover:bg-[#f8f7f2] focus:outline-none focus:ring-2 focus:ring-[#477858]'
+
+  actions.append(saveButton, cancelButton)
+  form.append(titleLabel, descriptionLabel, priorityLabel, error, actions)
+  details.append(form)
+  item.append(details)
+
+  titleInput.focus()
+  titleInput.select()
+}
+
+// Render all visible tasks from the state array.
 function render() {
   taskList.replaceChildren()
 
-  if (tasks.length === 0) {
+  const visibleTasks = tasks.filter((task) => {
+    const matchesFilter =
+      currentFilter === 'all' ||
+      (currentFilter === 'active' && !task.completed) ||
+      (currentFilter === 'completed' && task.completed)
+
+    const query = searchText.toLowerCase()
+    const matchesSearch =
+      task.text.toLowerCase().includes(query) ||
+      task.description.toLowerCase().includes(query)
+
+    return matchesFilter && matchesSearch
+  })
+
+  if (visibleTasks.length === 0) {
     const emptyItem = document.createElement('li')
     emptyItem.className =
       'rounded-2xl border border-dashed border-[#dcded4] bg-white p-8 text-center'
 
     const emptyTitle = document.createElement('p')
     emptyTitle.className = 'font-semibold text-[#24382d]'
-    emptyTitle.textContent = 'Your journey starts with one task.'
+    emptyTitle.textContent = tasks.length === 0
+      ? 'Your journey starts with one task.'
+      : 'No tasks match your search or filter.'
 
     const emptyDescription = document.createElement('p')
     emptyDescription.className = 'mt-2 text-sm text-[#73796f]'
-    emptyDescription.textContent = 'Add your first task using the form above.'
+    emptyDescription.textContent = tasks.length === 0
+      ? 'Add your first task using the form above.'
+      : 'Try another search or choose a different filter.'
 
     emptyItem.append(emptyTitle, emptyDescription)
     taskList.append(emptyItem)
   }
 
-  tasks.forEach((task) => {
+  visibleTasks.forEach((task) => {
     const item = document.createElement('li')
+    item.dataset.taskId = String(task.id)
     item.className =
       'flex flex-col gap-3 rounded-2xl border border-[#e8e5db] bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between'
 
-    const taskDetails = document.createElement('div')
-    taskDetails.className = 'min-w-0 flex-1'
+    const details = document.createElement('div')
+    details.className = 'min-w-0 flex-1'
 
     if (editingId === task.id) {
-      renderEditForm(task, item, taskDetails)
+      renderEditForm(task, item, details)
+      taskList.append(item)
       return
     }
 
-    renderTaskDetails(task, taskDetails)
+    renderTaskDetails(task, details)
 
     const actions = document.createElement('div')
     actions.className = 'flex shrink-0 flex-wrap items-center gap-2'
@@ -293,13 +490,10 @@ function render() {
     const checkbox = document.createElement('input')
     checkbox.type = 'checkbox'
     checkbox.checked = task.completed
+    checkbox.dataset.action = 'toggle'
+    checkbox.dataset.taskId = String(task.id)
     checkbox.setAttribute('aria-label', `Mark ${task.text} as completed`)
     checkbox.className = 'h-5 w-5 accent-[#245b43]'
-
-    checkbox.addEventListener('change', () => {
-      task.completed = checkbox.checked
-      render()
-    })
 
     const checkboxText = document.createElement('span')
     checkboxText.textContent = task.completed ? 'Completed' : 'Complete'
@@ -307,221 +501,73 @@ function render() {
 
     const editButton = document.createElement('button')
     editButton.type = 'button'
+    editButton.dataset.action = 'edit'
+    editButton.dataset.taskId = String(task.id)
     editButton.textContent = 'Edit'
     editButton.setAttribute('aria-label', `Edit ${task.text}`)
     editButton.className =
       'rounded-lg px-3 py-2 text-sm font-semibold text-[#245b43] transition hover:bg-[#edf4eb] focus:outline-none focus:ring-2 focus:ring-[#477858]'
 
-    editButton.addEventListener('click', () => {
-      editingId = task.id
-      render()
-    })
-
     const deleteButton = document.createElement('button')
     deleteButton.type = 'button'
+    deleteButton.dataset.action = 'delete'
+    deleteButton.dataset.taskId = String(task.id)
     deleteButton.textContent = 'Delete'
     deleteButton.setAttribute('aria-label', `Delete ${task.text}`)
     deleteButton.className =
       'rounded-lg px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-300'
 
-    deleteButton.addEventListener('click', () => {
-      const shouldDelete = window.confirm(
-        `Are you sure you want to delete "${task.text}"?`
-      )
-
-      if (shouldDelete) {
-        tasks = tasks.filter((item) => item.id !== task.id)
-
-        if (editingId === task.id) {
-          editingId = null
-        }
-
-        render()
-      }
-    })
-
     actions.append(checkboxLabel, editButton, deleteButton)
-    item.append(taskDetails, actions)
+    item.append(details, actions)
     taskList.append(item)
   })
 
   taskCount.textContent =
-    `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`
-}
+    `${visibleTasks.length} ${visibleTasks.length === 1 ? 'task' : 'tasks'} shown · ${tasks.length} total`
 
-// Show an editor for the title, description, and priority.
-function renderEditForm(task, item, taskDetails) {
-  const editForm = document.createElement('form')
-  editForm.className = 'flex min-w-0 flex-1 flex-col gap-4'
-  editForm.setAttribute('aria-label', 'Edit task')
-
-  const titleLabel = document.createElement('label')
-  titleLabel.className = 'block text-sm font-semibold text-[#24382d]'
-  titleLabel.textContent = 'Task title'
-
-  const editInput = document.createElement('input')
-  editInput.type = 'text'
-  editInput.value = task.text
-  editInput.maxLength = 200
-  editInput.setAttribute('aria-label', 'Edit task title')
-  editInput.className =
-    'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
-  titleLabel.append(editInput)
-
-  const descriptionLabel = document.createElement('label')
-  descriptionLabel.className = 'block text-sm font-semibold text-[#24382d]'
-  descriptionLabel.textContent = 'Description (optional)'
-
-  const editDescription = document.createElement('textarea')
-  editDescription.value = task.description || ''
-  editDescription.maxLength = 300
-  editDescription.rows = 3
-  editDescription.setAttribute('aria-label', 'Edit task description')
-  editDescription.className =
-    'mt-2 w-full rounded-xl border border-[#dcded4] px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
-  descriptionLabel.append(editDescription)
-
-  const priorityLabel = document.createElement('label')
-  priorityLabel.className = 'block text-sm font-semibold text-[#24382d]'
-  priorityLabel.textContent = 'Priority'
-
-  const editPriority = document.createElement('select')
-  editPriority.setAttribute('aria-label', 'Edit task priority')
-  editPriority.className =
-    'mt-2 block rounded-xl border border-[#dcded4] bg-white px-3 py-2 text-[#24382d] outline-none focus:border-[#477858] focus:ring-4 focus:ring-[#477858]/15'
-
-    ;['Low', 'Medium', 'High'].forEach((priority) => {
-      const option = document.createElement('option')
-      option.value = priority
-      option.textContent = `${priority} priority`
-      option.selected = task.priority === priority
-      editPriority.append(option)
-    })
-
-  priorityLabel.append(editPriority)
-
-  const editError = document.createElement('p')
-  editError.className = 'hidden text-sm text-red-600'
-  editError.setAttribute('role', 'alert')
-
-  const saveButton = document.createElement('button')
-  saveButton.type = 'submit'
-  saveButton.textContent = 'Save changes'
-  saveButton.className =
-    'rounded-lg bg-[#245b43] px-4 py-2 text-sm font-semibold text-white hover:bg-[#194632] focus:outline-none focus:ring-2 focus:ring-[#477858]'
-
-  const cancelButton = document.createElement('button')
-  cancelButton.type = 'button'
-  cancelButton.textContent = 'Cancel'
-  cancelButton.className =
-    'rounded-lg border border-[#dcded4] px-4 py-2 text-sm font-semibold text-[#24382d] hover:bg-[#f8f7f2] focus:outline-none focus:ring-2 focus:ring-[#477858]'
-
-  editForm.addEventListener('submit', (event) => {
-    event.preventDefault()
-
-    saveEdit(
-      task.id,
-      editInput.value,
-      editDescription.value,
-      editPriority.value,
-      editError
-    )
+  filterButtons.forEach((button) => {
+    const active = button.dataset.filter === currentFilter
+    button.setAttribute('aria-pressed', String(active))
+    button.className = active
+      ? 'rounded-full border border-[#245b43] bg-[#245b43] px-4 py-2 text-sm font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-[#477858]'
+      : 'rounded-full border border-[#dcded4] bg-white px-4 py-2 text-sm font-semibold text-[#24382d] transition hover:bg-[#edf4eb] focus:outline-none focus:ring-2 focus:ring-[#477858]'
   })
 
-  editForm.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      editingId = null
-      render()
-    }
-  })
-
-  cancelButton.addEventListener('click', () => {
-    editingId = null
-    render()
-  })
-
-  const editActions = document.createElement('div')
-  editActions.className = 'flex flex-wrap gap-2'
-  editActions.append(saveButton, cancelButton)
-
-  editForm.append(
-    titleLabel,
-    descriptionLabel,
-    priorityLabel,
-    editError,
-    editActions
+  clearCompletedButton.disabled = !tasks.some((task) => task.completed)
+  clearCompletedButton.classList.toggle(
+    'cursor-not-allowed',
+    clearCompletedButton.disabled
+  )
+  clearCompletedButton.classList.toggle(
+    'opacity-40',
+    clearCompletedButton.disabled
   )
 
-  taskDetails.append(editForm)
-  item.append(taskDetails)
-  taskList.append(item)
-
-  editInput.focus()
-  editInput.select()
+  saveState()
 }
 
-// Validate and save all edited task fields.
-function saveEdit(taskId, value, description, priority, errorElement) {
-  const text = value.trim()
-  const cleanDescription = description.trim()
-
-  if (text.length === 0) {
-    errorElement.textContent = 'Task title cannot be empty.'
-    errorElement.classList.remove('hidden')
-    return
+// Validate the title and description.
+function validateTask(text, description) {
+  if (!text) return 'Please enter a task before saving it.'
+  if (text.length > 100) return 'Task title must be 100 characters or fewer.'
+  if (description.length > 300) {
+    return 'Description must be 300 characters or fewer.'
   }
 
-  if (text.length > 100) {
-    errorElement.textContent =
-      'Task title must be 100 characters or fewer.'
-    errorElement.classList.remove('hidden')
-    return
-  }
-
-  if (cleanDescription.length > 300) {
-    errorElement.textContent =
-      'Description must be 300 characters or fewer.'
-    errorElement.classList.remove('hidden')
-    return
-  }
-
-  const task = tasks.find((item) => item.id === taskId)
-
-  if (!task) {
-    return
-  }
-
-  task.text = text
-  task.description = cleanDescription
-  task.priority = priority
-
-  editingId = null
-  render()
+  return ''
 }
 
-// Validate the form and add a new task.
+// Add a new task from the form.
 function addTask(event) {
   event.preventDefault()
 
   const text = taskInput.value.trim()
   const description = descriptionInput.value.trim()
+  const error = validateTask(text, description)
 
-  if (text.length === 0) {
-    showError('Please enter a task before adding it.')
+  if (error) {
+    showError(error)
     taskInput.focus()
-    return
-  }
-
-  if (text.length > 100) {
-    showError('Your task must be 100 characters or fewer.')
-    taskInput.focus()
-    return
-  }
-
-  if (description.length > 300) {
-    showError('Description must be 300 characters or fewer.')
-    descriptionInput.focus()
     return
   }
 
@@ -529,8 +575,8 @@ function addTask(event) {
 
   tasks.push({
     id: nextId,
-    text: text,
-    description: description,
+    text,
+    description,
     priority: priorityInput.value,
     completed: false,
   })
@@ -539,18 +585,158 @@ function addTask(event) {
   taskInput.value = ''
   descriptionInput.value = ''
   priorityInput.value = 'Medium'
+  currentFilter = 'all'
+  searchText = ''
+  searchInput.value = ''
 
   render()
   taskInput.focus()
 }
 
-// Clear input errors when the user types.
+// Save edited task details after validation.
+function saveEdit(form) {
+  const taskId = Number(form.dataset.taskId)
+  const text = form.elements.text.value.trim()
+  const description = form.elements.description.value.trim()
+  const priority = form.elements.priority.value
+  const errorElement = form.querySelector('[data-edit-error]')
+  const error = validateTask(text, description)
+
+  if (error) {
+    errorElement.textContent = error
+    errorElement.classList.remove('hidden')
+    return
+  }
+
+  if (!['Low', 'Medium', 'High'].includes(priority)) {
+    errorElement.textContent = 'Please select a valid priority.'
+    errorElement.classList.remove('hidden')
+    return
+  }
+
+  const task = tasks.find((item) => item.id === taskId)
+  if (!task) return
+
+  task.text = text
+  task.description = description
+  task.priority = priority
+  editingId = null
+  render()
+}
+
+// Clear the main form's validation message when the user types.
 function clearErrorOnInput() {
   clearError()
 }
 
-// Connect the form events and show the initial page.
+// Handle task-list button clicks using event delegation.
+function handleTaskClick(event) {
+  const button = event.target.closest('button[data-action]')
+  if (!button || !taskList.contains(button)) return
+
+  const taskId = Number(button.dataset.taskId)
+  const action = button.dataset.action
+  const task = tasks.find((item) => item.id === taskId)
+
+  if (action === 'cancel') {
+    editingId = null
+    render()
+    return
+  }
+
+  if (!task) return
+
+  if (action === 'edit') {
+    editingId = task.id
+    render()
+  }
+
+  if (action === 'delete') {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${task.text}"?`
+    )
+
+    if (!confirmed) return
+
+    tasks = tasks.filter((item) => item.id !== task.id)
+    if (editingId === task.id) editingId = null
+    render()
+  }
+}
+
+// Handle task completion using event delegation.
+function handleTaskChange(event) {
+  const checkbox = event.target
+
+  if (
+    checkbox.matches('input[data-action="toggle"]') &&
+    taskList.contains(checkbox)
+  ) {
+    const taskId = Number(checkbox.dataset.taskId)
+    const task = tasks.find((item) => item.id === taskId)
+
+    if (!task) return
+
+    task.completed = checkbox.checked
+    render()
+  }
+}
+
+// Handle editing forms through the task list.
+function handleTaskSubmit(event) {
+  const form = event.target
+
+  if (!form.matches('form[data-edit-form]')) return
+
+  event.preventDefault()
+  saveEdit(form)
+}
+
+// Let Escape cancel editing and Enter submit from the title input.
+function handleTaskKeydown(event) {
+  const form = event.target.closest('form[data-edit-form]')
+  if (!form) return
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    editingId = null
+    render()
+  }
+}
+
+// Clear the validation message while typing in the main title field.
 taskInput.addEventListener('input', clearErrorOnInput)
+
+// Add tasks using the form button or Enter in the title field.
 taskForm.addEventListener('submit', addTask)
 
+// Search task titles and descriptions.
+searchInput.addEventListener('input', () => {
+  searchText = searchInput.value.trim()
+  render()
+})
+
+// Switch between All, Active, and Completed tasks.
+filterButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    currentFilter = button.dataset.filter
+    editingId = null
+    render()
+  })
+})
+
+// Delete all completed tasks.
+clearCompletedButton.addEventListener('click', () => {
+  tasks = tasks.filter((task) => !task.completed)
+  editingId = null
+  render()
+})
+
+// Use event delegation for all task actions.
+taskList.addEventListener('click', handleTaskClick)
+taskList.addEventListener('change', handleTaskChange)
+taskList.addEventListener('submit', handleTaskSubmit)
+taskList.addEventListener('keydown', handleTaskKeydown)
+
+// Show the page using the restored application state.
 render()
